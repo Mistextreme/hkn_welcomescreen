@@ -5,9 +5,9 @@ local camToken       = 0
 local isIntroActive  = false
 local locale         = Config.Locales[Config.Locale] or Config.Locales['en']
 
-local CAM_FOV            = 60.0
-local FADE_BETWEEN_MS    = 300
-local FADE_BETWEEN_WAIT  = FADE_BETWEEN_MS + 50
+local CAM_FOV           = 60.0
+local FADE_BETWEEN_MS   = 300
+local FADE_BETWEEN_WAIT = FADE_BETWEEN_MS + 50
 
 -- ─── Camera helpers ────────────────────────────────────────────────────────
 
@@ -30,8 +30,8 @@ local function destroyActiveCam(stopRender)
     end
 end
 
--- Spawns a thread that walks through each camera in the location.
--- Exits immediately if camToken changes (new location was triggered).
+-- Walks through every camera in a location.
+-- Exits cleanly if camToken changes (a new location was triggered mid-animation).
 local function playCamerasForLocation(location, token)
     local cameras = location.cameras
     if not cameras or #cameras == 0 then return end
@@ -45,12 +45,22 @@ local function playCamerasForLocation(location, token)
 
     if #cameras <= 1 then return end
 
-    local durationMs   = (location.duration or 5) * 1000
-    local timePerStep  = math.floor(durationMs / (#cameras - 1))
-    local smooth       = location.smoothTransition
+    local durationMs  = (location.duration or 5) * 1000
+    local timePerStep = math.floor(durationMs / (#cameras - 1))
+    local smooth      = location.smoothTransition
 
     CreateThread(function()
         local prevCam = firstCam
+
+        -- FIX: For non-smooth locations, showLocation() calls DoScreenFadeIn()
+        -- synchronously just before this thread starts executing. Without this
+        -- wait, the first inner DoScreenFadeOut fires on the very next frame and
+        -- immediately fights the outer FadeIn — keeping the screen black through
+        -- the entire first within-location camera transition. Waiting here lets
+        -- the outer fade-in fully complete before any inner fades begin.
+        if not smooth then
+            Wait(FADE_BETWEEN_MS + 100)
+        end
 
         for i = 2, #cameras do
             if camToken ~= token then return end
@@ -211,7 +221,8 @@ RegisterNetEvent('hkn_welcome:client:startIntro', function()
 
     SetNuiFocus(true, true)
 
-    -- Start first location
+    -- Start first location directly (bypasses showLocation's between-scene fade
+    -- since startIntro already handled the initial fade above)
     camToken = camToken + 1
     local myToken = camToken
 
